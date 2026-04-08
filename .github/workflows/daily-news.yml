@@ -26,56 +26,79 @@ jobs:
 
           FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
 
-          # 中文源（直接覆盖全球AI新闻）+ 英文权威源
-          SOURCES_ZH = [
-              ("https://www.jiqizhixin.com/rss", "机器之心"),
-              ("https://www.qbitai.com/feed", "量子位"),
-          ]
-          SOURCES_EN = [
-              ("https://techcrunch.com/category/artificial-intelligence/feed/", "TechCrunch"),
-              ("https://openai.com/news/rss.xml", "OpenAI"),
-              ("https://deepmind.google/blog/rss/", "DeepMind"),
-              ("https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", "The Verge"),
+          AI_KEYWORDS = [
+              "AI", "artificial intelligence", "LLM", "GPT", "Claude", "Gemini",
+              "OpenAI", "Anthropic", "DeepMind", "machine learning", "language model",
+              "agent", "neural network", "chatbot", "Llama", "Mistral", "Grok",
+              "diffusion", "multimodal", "robotics", "AGI", "人工智能", "大模型"
           ]
 
-          def fetch_rss(url, source_name, timeout=15):
-              try:
-                  req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                  with urllib.request.urlopen(req, timeout=timeout) as resp:
-                      content = resp.read().decode("utf-8", errors="ignore")
-                  items = re.findall(r"<item>(.*?)</item>", content, re.DOTALL)
-                  results = []
-                  for item in items[:5]:
-                      title = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", item, re.DOTALL)
-                      link = re.search(r"<link>(.*?)</link>", item, re.DOTALL)
-                      desc = re.search(r"<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>", item, re.DOTALL)
-                      if title and link:
-                          t = re.sub(r"<[^>]+>", "", title.group(1)).strip()
-                          l = link.group(1).strip()
-                          d = re.sub(r"<[^>]+>", "", desc.group(1) if desc else "").strip()[:120]
-                          if t and l:
-                              results.append({"title": t, "url": l, "summary": d, "source": source_name})
-                  return results
-              except Exception as e:
-                  print(f"[{source_name}] 抓取失败: {e}")
-                  return []
+          def is_ai_related(text):
+              text_lower = text.lower()
+              return any(kw.lower() in text_lower for kw in AI_KEYWORDS)
 
-          def translate_to_zh(text):
+          def translate(text):
               try:
                   return GoogleTranslator(source="auto", target="zh-CN").translate(text[:500])
               except Exception:
                   return text
 
-          def filter_ai_news(items):
-              keywords = ["AI", "人工智能", "大模型", "LLM", "GPT", "Claude", "Gemini",
-                          "OpenAI", "Anthropic", "DeepMind", "machine learning", "语言模型",
-                          "智能体", "agent", "neural", "robot", "automation", "Llama", "Mistral"]
-              result = []
-              for item in items:
-                  text = (item["title"] + " " + item["summary"]).lower()
-                  if any(kw.lower() in text for kw in keywords):
-                      result.append(item)
-              return result
+          def fetch_hn_top_ai(limit=200, top_n=5):
+              """从 Hacker News 按热度抓取 AI 相关新闻"""
+              try:
+                  with urllib.request.urlopen(
+                      "https://hacker-news.firebaseio.com/v0/topstories.json", timeout=10
+                  ) as r:
+                      story_ids = json.loads(r.read())[:limit]
+              except Exception as e:
+                  print(f"HN topstories 获取失败: {e}")
+                  return []
+
+              ai_stories = []
+              for sid in story_ids:
+                  try:
+                      with urllib.request.urlopen(
+                          f"https://hacker-news.firebaseio.com/v0/item/{sid}.json", timeout=5
+                      ) as r:
+                          item = json.loads(r.read())
+                      if not item or item.get("type") != "story":
+                          continue
+                      title = item.get("title", "")
+                      url = item.get("url", f"https://news.ycombinator.com/item?id={sid}")
+                      score = item.get("score", 0)
+                      if is_ai_related(title):
+                          ai_stories.append({"title": title, "url": url, "score": score, "source": "Hacker News"})
+                  except Exception:
+                      continue
+
+              # 按热度分数排序取前 top_n
+              ai_stories.sort(key=lambda x: x["score"], reverse=True)
+              return ai_stories[:top_n]
+
+          def fetch_chinese_ai(top_n=3):
+              """从中文媒体补充中国AI动态"""
+              sources = [
+                  ("https://www.jiqizhixin.com/rss", "机器之心"),
+                  ("https://www.qbitai.com/feed", "量子位"),
+              ]
+              items = []
+              for url, name in sources:
+                  try:
+                      req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                      with urllib.request.urlopen(req, timeout=10) as resp:
+                          content = resp.read().decode("utf-8", errors="ignore")
+                      rss_items = re.findall(r"<item>(.*?)</item>", content, re.DOTALL)
+                      for item in rss_items[:5]:
+                          title = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", item, re.DOTALL)
+                          link = re.search(r"<link>(.*?)</link>", item, re.DOTALL)
+                          if title and link:
+                              t = re.sub(r"<[^>]+>", "", title.group(1)).strip()
+                              l = link.group(1).strip()
+                              if t and l and is_ai_related(t):
+                                  items.append({"title": t, "url": l, "score": 0, "source": name})
+                  except Exception as e:
+                      print(f"[{name}] 抓取失败: {e}")
+              return items[:top_n]
 
           def push_to_feishu(news_list):
               tz_shanghai = timezone(timedelta(hours=8))
@@ -84,8 +107,9 @@ jobs:
               lines = [f"🤖 AI日报 | {date_str}"]
               for i, item in enumerate(news_list[:5]):
                   emoji = emojis[i]
-                  summary = item["summary"][:60] + "..." if len(item["summary"]) > 60 else item["summary"]
-                  lines.append(f"\n{emoji} Top {i+1}: {item['title']}\n{summary}\n🔗 {item['url']}")
+                  title_zh = translate(item["title"]) if not any(ord(c) > 127 for c in item["title"]) else item["title"]
+                  score_str = f"  ▲{item['score']}" if item["score"] > 0 else ""
+                  lines.append(f"\n{emoji} Top {i+1}: {title_zh}{score_str}\n来源：{item['source']}\n🔗 {item['url']}")
               lines.append("\n由 Claude AI 自动汇总")
               message = "\n".join(lines)
               payload = json.dumps({"msg_type": "text", "content": {"text": message}}).encode("utf-8")
@@ -106,26 +130,17 @@ jobs:
                       print(f"❌ 推送异常 (attempt {attempt+1}): {e}")
               return False
 
-          all_items = []
+          # 主逻辑：HN 热榜 AI 新闻（全球热度排名）+ 中文媒体补充
+          hn_news = fetch_hn_top_ai(limit=200, top_n=5)
+          zh_news = fetch_chinese_ai(top_n=3)
 
-          # 中文源直接用
-          for url, name in SOURCES_ZH:
-              all_items.extend(fetch_rss(url, name))
-
-          # 英文源翻译后加入
-          for url, name in SOURCES_EN:
-              items = fetch_rss(url, name)
-              for item in items:
-                  item["title"] = translate_to_zh(item["title"])
-                  item["summary"] = translate_to_zh(item["summary"])
-              all_items.extend(items)
-
-          ai_news = filter_ai_news(all_items)
-          seen, unique = set(), []
-          for item in ai_news:
-              if item["title"] not in seen:
+          # 合并去重，HN优先（已按热度排序），不足5条用中文补
+          seen = set()
+          final = []
+          for item in hn_news + zh_news:
+              if item["title"] not in seen and len(final) < 5:
                   seen.add(item["title"])
-                  unique.append(item)
+                  final.append(item)
 
-          push_to_feishu(unique[:5] if unique else all_items[:5])
+          push_to_feishu(final)
           EOF
