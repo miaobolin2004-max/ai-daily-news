@@ -23,11 +23,10 @@ jobs:
           FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
 
           SOURCES = [
-              ("https://feeds.feedburner.com/TechCrunch/", "TechCrunch"),
-              ("https://www.artificialintelligence-news.com/feed/", "AI News"),
-              ("https://openai.com/news/rss.xml", "OpenAI"),
-              ("https://deepmind.google/blog/rss/", "DeepMind"),
-              ("https://techcrunch.com/category/artificial-intelligence/feed/", "TC-AI"),
+              ("https://www.jiqizhixin.com/rss", "机器之心"),
+              ("https://www.qbitai.com/feed", "量子位"),
+              ("https://36kr.com/feed", "36氪"),
+              ("https://www.pingwest.com/feed", "品玩"),
           ]
 
           def fetch_rss(url, source_name, timeout=15):
@@ -53,9 +52,9 @@ jobs:
                   return []
 
           def filter_ai_news(items):
-              keywords = ["AI", "artificial intelligence", "LLM", "GPT", "Claude", "Gemini",
-                          "OpenAI", "Anthropic", "DeepMind", "machine learning", "language model",
-                          "chatbot", "neural", "robot", "automation", "agent"]
+              keywords = ["AI", "人工智能", "大模型", "LLM", "GPT", "Claude", "Gemini",
+                          "OpenAI", "Anthropic", "DeepMind", "机器学习", "语言模型",
+                          "智能体", "Agent", "神经网络", "自动化", "机器人"]
               result = []
               for item in items:
                   text = (item["title"] + " " + item["summary"]).lower()
