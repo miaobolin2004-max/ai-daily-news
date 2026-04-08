@@ -9,6 +9,9 @@ jobs:
   push-news:
     runs-on: ubuntu-latest
     steps:
+      - name: 安装依赖
+        run: pip install deep-translator
+
       - name: 抓取AI新闻并推送飞书
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
@@ -19,14 +22,20 @@ jobs:
           import re
           import os
           from datetime import datetime, timezone, timedelta
+          from deep_translator import GoogleTranslator
 
           FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
 
-          SOURCES = [
+          # 中文源（直接覆盖全球AI新闻）+ 英文权威源
+          SOURCES_ZH = [
               ("https://www.jiqizhixin.com/rss", "机器之心"),
               ("https://www.qbitai.com/feed", "量子位"),
-              ("https://36kr.com/feed", "36氪"),
-              ("https://www.pingwest.com/feed", "品玩"),
+          ]
+          SOURCES_EN = [
+              ("https://techcrunch.com/category/artificial-intelligence/feed/", "TechCrunch"),
+              ("https://openai.com/news/rss.xml", "OpenAI"),
+              ("https://deepmind.google/blog/rss/", "DeepMind"),
+              ("https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", "The Verge"),
           ]
 
           def fetch_rss(url, source_name, timeout=15):
@@ -43,7 +52,7 @@ jobs:
                       if title and link:
                           t = re.sub(r"<[^>]+>", "", title.group(1)).strip()
                           l = link.group(1).strip()
-                          d = re.sub(r"<[^>]+>", "", desc.group(1) if desc else "").strip()[:80]
+                          d = re.sub(r"<[^>]+>", "", desc.group(1) if desc else "").strip()[:120]
                           if t and l:
                               results.append({"title": t, "url": l, "summary": d, "source": source_name})
                   return results
@@ -51,10 +60,16 @@ jobs:
                   print(f"[{source_name}] 抓取失败: {e}")
                   return []
 
+          def translate_to_zh(text):
+              try:
+                  return GoogleTranslator(source="auto", target="zh-CN").translate(text[:500])
+              except Exception:
+                  return text
+
           def filter_ai_news(items):
               keywords = ["AI", "人工智能", "大模型", "LLM", "GPT", "Claude", "Gemini",
-                          "OpenAI", "Anthropic", "DeepMind", "机器学习", "语言模型",
-                          "智能体", "Agent", "神经网络", "自动化", "机器人"]
+                          "OpenAI", "Anthropic", "DeepMind", "machine learning", "语言模型",
+                          "智能体", "agent", "neural", "robot", "automation", "Llama", "Mistral"]
               result = []
               for item in items:
                   text = (item["title"] + " " + item["summary"]).lower()
@@ -92,8 +107,18 @@ jobs:
               return False
 
           all_items = []
-          for url, name in SOURCES:
+
+          # 中文源直接用
+          for url, name in SOURCES_ZH:
               all_items.extend(fetch_rss(url, name))
+
+          # 英文源翻译后加入
+          for url, name in SOURCES_EN:
+              items = fetch_rss(url, name)
+              for item in items:
+                  item["title"] = translate_to_zh(item["title"])
+                  item["summary"] = translate_to_zh(item["summary"])
+              all_items.extend(items)
 
           ai_news = filter_ai_news(all_items)
           seen, unique = set(), []
