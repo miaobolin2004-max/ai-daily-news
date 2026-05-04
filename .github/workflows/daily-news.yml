@@ -27,15 +27,19 @@ jobs:
           FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
 
           AI_KEYWORDS = [
-              "AI", "artificial intelligence", "LLM", "GPT", "Claude", "Gemini",
+              "artificial intelligence", "LLM", "GPT", "Claude", "Gemini",
               "OpenAI", "Anthropic", "DeepMind", "machine learning", "language model",
               "agent", "neural network", "chatbot", "Llama", "Mistral", "Grok",
-              "diffusion", "multimodal", "robotics", "AGI", "人工智能", "大模型"
+              "diffusion", "multimodal", "robotics", "AGI",
+              "人工智能", "大模型", "深度学习", "生成式", "智能体", "多模态"
           ]
 
+          ASCII_KW = [k for k in AI_KEYWORDS if k.isascii()]
+          CN_KW    = [k for k in AI_KEYWORDS if not k.isascii()]
+          ASCII_RE = re.compile(r"\b(?:" + "|".join(re.escape(k) for k in ASCII_KW) + r")\b", re.IGNORECASE)
+
           def is_ai_related(text):
-              text_lower = text.lower()
-              return any(kw.lower() in text_lower for kw in AI_KEYWORDS)
+              return bool(ASCII_RE.search(text)) or any(k in text for k in CN_KW)
 
           def translate(text):
               try:
