@@ -5,6 +5,10 @@ on:
     - cron: '30 23 * * *'  # 每天北京时间 07:30
   workflow_dispatch:        # 支持手动触发
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   push-news:
     runs-on: ubuntu-latest
@@ -148,3 +152,9 @@ jobs:
 
           push_to_feishu(final)
           EOF
+
+      - name: Keepalive（重置 60 天不活跃自动禁用计时）
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/daily-news.yml/enable"
